@@ -277,6 +277,9 @@ int vh_urpc_child_create(urpc_peer_t *up, char *binary,
 			setenv("URPC_VE_CORE", tmp, 1);
 		}
 
+		// Disable accelerated I/O because it uses huge pages
+		setenv("VE_PDMA_IO", "1", 1);
+
 		// Set environment variable VE_FTRACE_OUT_NAME
 		set_ve_ftrace_out_name(venode_id);
 
