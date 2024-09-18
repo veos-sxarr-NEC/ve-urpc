@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
 
 
 
-	ts = get_time_us();
+	ts = get_time_us_real();
 	int send_ret;
 	int rc;
 	int send_err = 0;
@@ -259,7 +259,7 @@ int main(int argc, char *argv[])
 
 	vh_urpc_recv_progress_timeout(up, 1, 100);
 
-	te = get_time_us();
+	te = get_time_us_real();
         urpc_unregister_handler(up, 1);
         
 
