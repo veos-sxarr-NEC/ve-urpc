@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 #define MAX_VE_CORES   18
 /* maximum number of peer currently limited to 128 = 8 VEs * 16 cores */
@@ -203,6 +204,15 @@ struct urpc_peer {
 	urpc_handler_func handler[256];
 	int urpc_data_buff_len;
 };
+
+typedef struct {
+	urpc_peer_t *up; // Pointer to a urpc_peer_t structure.
+	char *binary; // Pointer to a character array representing the binary data.
+	int venode_id; // Integer representing the VE node ID.
+	int ve_core; // ve_coreInteger representing the VE core.
+	sem_t *sem_for_detach_shared; // Pointer to a semaphore for detaching shared memory.
+} ThreadArgs;
+
   
 #ifdef __ve__
 

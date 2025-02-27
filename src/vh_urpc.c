@@ -205,13 +205,21 @@ void set_ve_ftrace_out_name(int venode_id)
 
   Return 0 if all went well, -errno if not.
  */
-int vh_urpc_child_create(urpc_peer_t *up, char *binary,
-                         int venode_id, int ve_core)
+
+void vh_urpc_child_create_thread(void *arg)
 {
 	int err;
 	struct stat sb;
 	int maxargs = 64;
 	char *argv[maxargs];
+
+	ThreadArgs *th_args = (ThreadArgs *)arg;
+
+	urpc_peer_t *up = th_args->up;
+	char *binary = th_args->binary;
+	int venode_id = th_args->venode_id;
+	int ve_core = th_args->ve_core;
+	sem_t *sem_for_detach_shared = th_args->sem_for_detach_shared;
 
 	// exec binary
 	extern char** environ;
@@ -222,9 +230,13 @@ int vh_urpc_child_create(urpc_peer_t *up, char *binary,
         char *args = strdup(e);
 	int nargs = argsexp(args, argv, maxargs);
 
+	int exit_status = 0;
+
 	if (stat(argv[0], &sb) == -1) {
 		perror("stat");
-		return -ENOENT;
+		exit_status = -ENOENT;
+		free(args);
+		pthread_exit((void *)(intptr_t)exit_status);
 	}
 #if 0
 	// For an unknown reason, if we have the SIGCHLD reaper in place
@@ -240,30 +252,42 @@ int vh_urpc_child_create(urpc_peer_t *up, char *binary,
 		}
 	}
 #endif
-
-	size_t pagesize = sysconf(_SC_PAGE_SIZE);
-	sem_t *sem = mmap(NULL, pagesize, PROT_READ | PROT_WRITE,
-			  MAP_ANONYMOUS | MAP_SHARED,
-			 -1, 0);
-	if (sem == MAP_FAILED) {
-		perror("ERROR: mmap");
-		return -ENOMEM;
-	}
-	sem_init(sem, 1, 0);
 	pid_t p_pid = getpid();
 	pid_t c_pid = fork();
 	if (c_pid == 0) {
 		// this is the child
+		sigset_t ss;
+		int sig;
+
+		// block SIGTERM
+		sigemptyset(&ss);
+		sigaddset(&ss, SIGTERM);
+		sigprocmask(SIG_BLOCK, &ss, NULL);
+
+		// set parent death signal
 		err = prctl(PR_SET_PDEATHSIG, SIGTERM);
-		if (err == -1) { 
+		if (err == -1) {
+			shmdt(up->shm_addr);
+			sem_post(sem_for_detach_shared);
 			perror("ERROR: prctl");
 			_exit(errno);
-		 }
+		}
+
+		/* Check if the parent process has already exited.
+		 * if the parent process has exited, no future SIGTERM signals
+		 * will be received.
+		 * This means that sigwait will block indefinitely,
+		 * so it is necessary to terminate.
+		 */
 		if (getppid() != p_pid)
 			exit(1);
 
 		shmdt(up->shm_addr);
-		sem_post(sem);
+		sem_post(sem_for_detach_shared);
+
+		// wait for parent death signal
+		sigwait(&ss, &sig);
+		sigprocmask(SIG_UNBLOCK, &ss, NULL);
 
 		// set env vars
 		char tmp[16];
@@ -287,6 +311,14 @@ int vh_urpc_child_create(urpc_peer_t *up, char *binary,
 		sprintf(tmp, "%d", up->urpc_data_buff_len);
 		setenv("URPC_DATA_BUFF_LEN", tmp, 1);
 
+		/* Check if the parent process has already exited.
+		 * If the parent process has exited, no future signals will be received.
+		 * Since the SIGTERM signal is already being awaited with sigwait,
+		 * it is necessary to terminate if the parent process has already exited.
+		 */
+		if (getppid() != p_pid)
+			exit(1);
+
 		err = execve(argv[0], argv, environ);
 		if (err) {
 			perror("ERROR: execve");
@@ -296,16 +328,72 @@ int vh_urpc_child_create(urpc_peer_t *up, char *binary,
 	} else if (c_pid > 0) {
 		// this is the parent
 		free(args);
-		sem_wait(sem);
-		sem_destroy(sem);
-		munmap(sem, pagesize);
+		sem_wait(sem_for_detach_shared);
 		up->child_pid = c_pid;
+		pthread_exit((void *)(intptr_t)exit_status);
 	} else {
 		// this is an error
 		perror("ERROR vh_urpc_child_create");
-		return -errno;
+		exit_status = -errno;
+		free(args);
+		pthread_exit((void *)(intptr_t)exit_status);
 	}
-	return 0;
+}
+
+int vh_urpc_child_create(urpc_peer_t *up, char *binary,
+                         int venode_id, int ve_core)
+{
+	int ret;
+	int exit_status = 0;
+	void *thread_ret;
+	pthread_t child_th;
+
+	ThreadArgs *arg = malloc(sizeof(ThreadArgs));
+	if (arg == NULL) {
+		perror("ERROR: malloc");
+		return -ENOMEM;
+	}
+
+	size_t pagesize = sysconf(_SC_PAGE_SIZE);
+	sem_t *sem_page = mmap(NULL, pagesize, PROT_READ | PROT_WRITE,
+			  MAP_ANONYMOUS | MAP_SHARED,
+			 -1, 0);
+	if (sem_page == MAP_FAILED) {
+		perror("ERROR: mmap");
+		free(arg);
+		return -ENOMEM;
+	}
+
+	sem_t *sem_for_detach_shared = sem_page;
+	sem_init(sem_for_detach_shared, 1, 0);
+
+	arg->up = up;
+	arg->binary = binary;
+	arg->venode_id = venode_id;
+	arg->ve_core = ve_core;
+	arg->sem_for_detach_shared = sem_for_detach_shared;
+
+	ret = pthread_create(&child_th, NULL, vh_urpc_child_create_thread, (void*)arg);
+	if (ret != 0) {
+		perror("ERROR: pthread_create");
+		exit_status = -errno;
+		goto cleanup;
+	}
+	// Wait for the thread to finish
+	ret = pthread_join(child_th, &thread_ret);
+	if (ret != 0) {
+		perror("ERROR: pthread_join");
+		exit_status = -errno;
+		goto cleanup;
+	}
+
+	exit_status = (int)(intptr_t)thread_ret;
+
+cleanup:
+	sem_destroy(sem_for_detach_shared);
+	munmap(sem_page, pagesize);
+	free(arg);
+	return exit_status;
 }
 
 int vh_urpc_child_destroy(urpc_peer_t *up)
