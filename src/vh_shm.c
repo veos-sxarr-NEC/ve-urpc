@@ -52,21 +52,47 @@ int _vh_shm_init(int key, size_t size, void **local_addr)
 {
 	int err = 0;
 	struct shmid_ds ds;
-	int shmat_errno = 0;
+	int saved_errno = 0;
+	char cmd[256];
+	int segid = 0;
+	FILE *fp = NULL;
+	int status = 0;
+	int retcode = 0;
 
-	int segid = shmget(key, size, SHM_HUGETLB | S_IRWXU);
-	if (segid == -1) {
-		eprintf("[vh_shm_init] shmget failed: %s\n", strerror(errno));
+	if (snprintf(cmd, sizeof(cmd),
+		    "/opt/nec/ve/veos/libexec/veo_shmget_helper %d %zu",
+		    key, size) >= sizeof(cmd)) {
+		eprintf("[vh_shm_init] snprintf failed\n");
+		return -EINVAL;
+	}
+	fp = popen(cmd, "r");
+	if (fp == NULL) {
+		eprintf("[vh_shm_init] popen failed: %s\n", strerror(errno));
 		return -errno;
+	}
+	if (fscanf(fp, "%d", &segid) != 1) {
+		eprintf("[vh_shm_init] fscanf failed\n");
+		pclose(fp);
+		return -EINVAL;
+	}
+	status = pclose(fp);
+	if ( status == -1 ) {
+		eprintf("[vh_shm_init] pclose failed: %s\n", strerror(errno));
+		return -errno;
+	}
+	retcode = WEXITSTATUS(status);
+	if (retcode != 0) {
+		eprintf("[vh_shm_init] shmget failed\n");
+		return -ENOMEM;
 	}
 	*local_addr = shmat(segid, NULL, 0);
 	dprintf("[vh_shm_init] shm seg local_addr: %p\n", *local_addr);
 	if (*local_addr == (void *) -1) {
-		shmat_errno = errno;
+		saved_errno = errno;
 		eprintf("[vh_shm_init] shmat failed: %s. "
 			"Releasing shm segment. key=%d\n", strerror(errno), key);
 		shmctl(segid, IPC_RMID, NULL);
-		return -shmat_errno;
+		return -saved_errno;
 	}
         _vh_shm_destroy(segid);
 	return segid;

@@ -8,6 +8,8 @@ all-ve: urpc-ve
 
 all-vh: urpc-vh
 
+all-helper: urpc-helper
+
 urpc:
 	make -C src DEST=$(DEST) BUILD=$(BUILD)
 
@@ -16,6 +18,9 @@ urpc-ve:
 
 urpc-vh:
 	make -C src all-vh DEST=$(DEST) BUILD=$(BUILD)
+
+urpc-helper:
+	make -C src helper DEST=$(DEST) BUILD=$(BUILD)
 
 test:
 	make -C test DEST=$(DEST) BUILD=$(BUILD)
@@ -29,6 +34,9 @@ install-ve:
 
 install-vh:
 	make -C src install-vh DEST=$(DEST) BUILD=$(BUILD) PREF=$(PREF)
+
+install-helper:
+	make -C src install-helper DEST=$(DEST) BUILD=$(BUILD) PREF=$(PREF)
 
 clean:
 	make -C src clean

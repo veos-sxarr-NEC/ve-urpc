@@ -6,6 +6,7 @@ include ../make.inc
 
 VHLIB_OBJ := init_hook.o vh_shm.o vh_urpc.o urpc_common.o memory.o
 VELIB_OBJ := init_hook.o ve_urpc.o urpc_common.o memory.o
+VH_HELPER := veo_shmget_helper
 
 LIBS := $(addprefix $(BLIB)/,liburpcVH.so )
 ARCS := $(addprefix $(BLIB)/,liburpcVH.a )
@@ -18,11 +19,13 @@ VELIB_OBJS := $(addprefix $(BVE)/,$(VELIB_OBJ))
 VELIB_OBJS_OMP := $(addprefix $(BVE_OMP)/,$(VELIB_OBJ))
 
 
-ALL: all-ve all-vh
+ALL: all-ve all-vh helper
 
 all-ve: $(VELIBS) $(VEARCS) $(INCLUDES)
 
 all-vh: $(LIBS) $(ARCS) $(INCLUDES)
+
+helper: $(BB)/$(VH_HELPER)
 
 .PRECIOUS: $(BUILD)/ $(BUILD)%/ $(DEST)/ $(DEST)%/ $(VEDEST)/ $(VEDEST)%/
 
@@ -43,7 +46,7 @@ all-vh: $(LIBS) $(ARCS) $(INCLUDES)
 %/urpc_common_ve.o: urpc_common.c urpc_common.h urpc.h urpc_time.h
 %/init_hook_ve.o: init_hook.c urpc_common.h urpc.h
 
-install: install-ve install-vh
+install: install-ve install-vh install-helper
 
 install-ve: $(VELIBS) $(VELIBS) $(VEARCS) | $(PREF)$(VEDEST)/lib/
 	/usr/bin/install -t $(PREF)$(VEDEST)/lib $(VELIBS)
@@ -53,6 +56,9 @@ install-vh: $(LIBS) $(ARCS) $(INCLUDES) | $(PREF)$(DEST)/lib64/ $(PREF)$(DEST)/i
 	/usr/bin/install -t $(PREF)$(DEST)/lib64 $(LIBS)
 	/usr/bin/install -t $(PREF)$(DEST)/lib64 -m 0644 $(ARCS)
 	/usr/bin/install -t $(PREF)$(DEST)/include -m 0644 $(INCLUDES)
+
+install-helper:  $(BB)/$(VH_HELPER) | $(PREF)$(DEST)/libexec/
+	/usr/bin/install -t $(PREF)$(DEST)/libexec $(BB)/$(VH_HELPER)
 
 .SECONDEXPANSION:
 
@@ -80,6 +86,9 @@ $(BVELIB)/liburpcVE.a: $(VELIB_OBJS) | $$(@D)/
 $(BVELIB)/liburpcVE_omp.a: $(VELIB_OBJS_OMP) | $$(@D)/
 	$(NAR) rv $@ $^
 
+$(BB)/$(VH_HELPER): veo_shmget_helper.c | $$(@D)/
+	$(GCC) $(GCCFLAGS) -fpic -o $@ $<
+
 $(BVH)/%.o: %.c | $$(@D)/
 	$(GCC) $(GCCFLAGS) -fpic -o $@ -c $<
 
@@ -89,8 +98,7 @@ $(BVE_OMP)/%.o: %.c | $$(@D)/
 $(BVE)/%.o: %.c | $$(@D)/
 	$(NCC) $(NCCFLAGS) -fpic -o $@ -c $<
 
-
 clean:
 	rm -f $(VHLIB_OBJS) $(VELIB_OBJS) $(VELIB_OBJS_OMP) $(LIBS) \
-		$(VELIBS) $(VEARCS) $(ARCS) $(INCLUDES)
+		$(VELIBS) $(VEARCS) $(ARCS) $(INCLUDES) $(BB)/$(VH_HELPER)
 
