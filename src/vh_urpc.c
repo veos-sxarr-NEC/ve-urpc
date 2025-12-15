@@ -373,7 +373,7 @@ int vh_urpc_child_create(urpc_peer_t *up, char *binary,
 	arg->ve_core = ve_core;
 	arg->sem_for_detach_shared = sem_for_detach_shared;
 
-	ret = pthread_create(&child_th, NULL, vh_urpc_child_create_thread, (void*)arg);
+	ret = pthread_create(&child_th, NULL, (void *(*)(void *))vh_urpc_child_create_thread, (void*)arg);
 	if (ret != 0) {
 		perror("ERROR: pthread_create");
 		exit_status = -errno;

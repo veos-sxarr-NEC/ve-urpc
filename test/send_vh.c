@@ -4,8 +4,11 @@
 
 #include "urpc.h"
 #include "urpc_time.h"
+#include "urpc_common.h"
 #include "urpc_debug.h"
 #include "sendrecv.h"
+
+int urpc_unregister_handler(urpc_peer_t *up, int handler_id);
 
 void vh_print_shm_coords(urpc_peer_t *up)
 {
@@ -171,7 +174,7 @@ int main(int argc, char *argv[])
 	int send_err = 0;
 	int i,j;
 	uint32_t arg_i= 4294967295;
-	uint64_t arg_l= 18446744073709551615;
+	uint64_t arg_l= 18446744073709551615ULL;
 	int64_t next_slot=-1;
         urpc_mb_t m;
         void *payload = NULL;
